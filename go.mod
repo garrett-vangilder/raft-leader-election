@@ -4,3 +4,4 @@ go 1.20
 
 require github.com/zeromq/goczmq v4.1.0+incompatible
 
+require github.com/pebbe/zmq4 v1.2.9 // indirect
