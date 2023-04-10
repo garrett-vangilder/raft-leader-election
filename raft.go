@@ -27,13 +27,17 @@ type RaftNode struct {
 	state         string      // The state of the node (follower, candidate, or leader).
 	electionTimer *time.Timer // The timer used to trigger a new election.
 
-	mutex        sync.Mutex
-	dealerSocket *zmq.Socket
-	recvSocket   *zmq.Socket
-	poller       *zmq.Poller
+	mutex   sync.Mutex
+	reqSock *zmq.Socket
+	repSock *zmq.Socket
+	poller  *zmq.Poller
+	context *zmq.Context
 
 	// reference to peer addresses
 	peers []Peer
+
+	// reference to votes received
+	votesReceived int
 }
 
 // Message represents a message sent between nodes in the Raft cluster.
@@ -49,46 +53,57 @@ type Message struct {
 func (n *RaftNode) connectToPeers() {
 	fmt.Println("raft::connectToPeers()")
 
+	// create a context
+	context, err := zmq.NewContext()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	n.context = context
+
 	// Create a router socket and bind it to address.
 	fmt.Println("raft::connectToPeers() - creating router socket")
-	router, err := zmq.NewSocket(zmq.ROUTER)
-	router.Bind("tcp://" + n.address + ":" + n.port)
+
+	rep, err := zmq.NewSocket(zmq.REP)
+	rep.Bind("tcp://*:" + n.port)
 
 	if err != nil {
 		fmt.Println("raft::connectToPeers() - failed to create new socket: ", err)
 	}
 
 	// create poller
+	fmt.Println("raft::connectToPeers() - creating poller")
 	poller := zmq.NewPoller()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	poller.Add(router, zmq.POLLIN)
+	poller.Add(rep, zmq.POLLIN)
 
 	// // create socket
-	dealer, err := zmq.NewSocket(zmq.DEALER)
+	fmt.Println("raft::connectToPeers() - creating dealer socket")
+	req, err := zmq.NewSocket(zmq.REQ)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dealer.Connect("tcp://" + n.address + ":" + n.port)
-
-	// add dealer to poller
-	poller.Add(dealer, zmq.POLLIN)
 
 	// // connect to peers
 	for _, peer := range n.peers {
-		fmt.Println("Connecting to peer: ", peer)
-		router.Bind("tcp://" + peer.address)
+		fmt.Println("raft::connectToPeers() - Connecting to peer:", peer.name+" at "+peer.address)
+		// todo verify
+		req.Connect("tcp://" + peer.address)
 	}
 
-	n.recvSocket = router
-	n.dealerSocket = dealer
+	// add dealer to poller
+	poller.Add(req, zmq.POLLIN)
+
+	n.repSock = rep
+	n.reqSock = req
 	n.poller = poller
 }
 
 func (n *RaftNode) listenForResponses() {
-	fmt.Printf("Listening for responses on %s...\n", n.address)
+	fmt.Println("raft::listenForResponses()")
 	for {
 		// declare message
 		var msg []string
@@ -98,7 +113,7 @@ func (n *RaftNode) listenForResponses() {
 
 		for _, socket := range sockets {
 			switch s := socket.Socket; s {
-			case n.dealerSocket:
+			case n.reqSock:
 				fmt.Println("Received message from dealerSocket")
 				_msg, err := s.RecvMessage(0)
 				if err != nil {
@@ -106,8 +121,7 @@ func (n *RaftNode) listenForResponses() {
 					continue
 				}
 				msg = _msg
-			case n.recvSocket:
-				fmt.Println("Received message from recvSocket")
+			case n.repSock:
 				_msg, err := s.RecvMessage(0)
 				if err != nil {
 					fmt.Println("Error receiving message:", err)
@@ -116,22 +130,26 @@ func (n *RaftNode) listenForResponses() {
 				msg = _msg
 			}
 
+			fmt.Println("raft::listenForResponses() - message: ", msg)
+
 			// decode message
 			var message Message
-			err := json.Unmarshal([]byte(msg[1]), &message)
+			fmt.Println(message)
+			err := json.Unmarshal([]byte(msg[0]), &message)
 			if err != nil {
 				fmt.Println("Error decoding message:", err)
 				continue
 			}
 
-			// print the message
-			fmt.Println("raft::listenForResponses() - message type: ", message.Type)
-			fmt.Println("raft::listenForResponses() - message term: ", message.Term)
-			fmt.Println("raft::listenForResponses() - message from: ", message.From)
-			fmt.Println("raft::listenForResponses() - message to: ", message.To)
-
 			// drop the message if its from us
 			if message.To == n.name {
+				fmt.Println("raft::listenForResponses() - message is for this node")
+
+				// print the message
+				fmt.Println("raft::listenForResponses() - message type: ", message.Type)
+				fmt.Println("raft::listenForResponses() - message term: ", message.Term)
+				fmt.Println("raft::listenForResponses() - message from: ", message.From)
+				fmt.Println("raft::listenForResponses() - message to: ", message.To)
 				n.receiveMessage(message)
 			}
 		}
@@ -152,6 +170,8 @@ func (n *RaftNode) receiveMessage(message Message) {
 			fmt.Println("raft::receiveMessage() - message command: ", message.Command)
 
 			// check if message term is greater than current term
+			fmt.Println("raft::receiveMessage() - message term: ", message.Term)
+			fmt.Println("raft::receiveMessage() - current term: ", n.currentTerm)
 			if message.Term > n.currentTerm {
 				fmt.Println("raft::receiveMessage() - message term is greater than current term")
 				fmt.Println("raft::receiveMessage() - becoming follower")
@@ -160,6 +180,7 @@ func (n *RaftNode) receiveMessage(message Message) {
 				// check if we have already voted for someone else
 				if n.votedFor != "" {
 					fmt.Println("raft::receiveMessage() - already voted for someone else")
+					n.sendVoteResponse(message.From, false)
 					return
 				}
 
@@ -181,11 +202,87 @@ func (n *RaftNode) receiveMessage(message Message) {
 				fmt.Println("raft::receiveMessage() - becoming follower")
 				n.becomeFollower(message.Term)
 			}
+
+			// reset election timer
+			n.startElectionTimer()
+
+			// send response
+			n.sendHeartBeatResponse(message.From)
+
 		}
 	case "candidate":
 		// If the message is a vote request, grant or deny the vote.
-		// If the message is a heartbeat from the leader with a higher term, become a follower.
-		{
+		if message.Type == "RequestVoteResponse" {
+			fmt.Println("raft::receiveMessage() - message type is RequestVoteResponse")
+			fmt.Println("raft::receiveMessage() - message term: ", message.Term)
+			fmt.Println("raft::receiveMessage() - message from: ", message.From)
+			fmt.Println("raft::receiveMessage() - message to: ", message.To)
+			fmt.Println("raft::receiveMessage() - message command: ", message.Command)
+			fmt.Println("raft::receiveMessage() - message votegranted: ", message.VoteGranted)
+
+			// check if vote was granted
+			if message.VoteGranted {
+				fmt.Println("raft::receiveMessage() - vote was granted")
+				n.votesReceived++
+				fmt.Println("raft::receiveMessage() - votes received: ", n.votesReceived)
+
+				// check if we have received a majority of votes
+				if n.votesReceived > len(n.peers)/2 {
+					fmt.Println("raft::receiveMessage() - received majority of votes")
+					n.becomeLeader()
+				}
+
+			} else {
+				fmt.Println("raft::receiveMessage() - vote was not granted")
+			}
+
+		} else if message.Type == "Heartbeat" {
+			fmt.Println("raft::receiveMessage() - message type is Heartbeat")
+			fmt.Println("raft::receiveMessage() - message term: ", message.Term)
+			fmt.Println("raft::receiveMessage() - message from: ", message.From)
+			fmt.Println("raft::receiveMessage() - message to: ", message.To)
+			fmt.Println("raft::receiveMessage() - message command: ", message.Command)
+
+			// check if message term is greater than current term
+			if message.Term > n.currentTerm {
+				fmt.Println("raft::receiveMessage() - message term is greater than current term")
+				fmt.Println("raft::receiveMessage() - becoming follower")
+				n.becomeFollower(message.Term)
+			}
+
+			// reset election timer
+			n.startElectionTimer()
+
+			// send response
+			n.sendHeartBeatResponse(message.From)
+
+		} else if message.Type == "RequestVote" {
+			fmt.Println("raft::receiveMessage() - message type is RequestVote")
+			fmt.Println("raft::receiveMessage() - message term: ", message.Term)
+			fmt.Println("raft::receiveMessage() - message from: ", message.From)
+			fmt.Println("raft::receiveMessage() - message to: ", message.To)
+			fmt.Println("raft::receiveMessage() - message command: ", message.Command)
+
+			// check if message term is greater than current term
+			fmt.Println("raft::receiveMessage() - message term: ", message.Term)
+			fmt.Println("raft::receiveMessage() - current term: ", n.currentTerm)
+			if message.Term > n.currentTerm {
+				fmt.Println("raft::receiveMessage() - message term is greater than current term")
+				fmt.Println("raft::receiveMessage() - becoming follower")
+				n.becomeFollower(message.Term)
+
+				// check if we have already voted for someone else
+				if n.votedFor != "" {
+					fmt.Println("raft::receiveMessage() - already voted for someone else")
+					n.sendVoteResponse(message.From, false)
+					return
+				}
+
+				// grant vote
+				fmt.Println("raft::receiveMessage() - granting vote")
+				n.votedFor = message.From
+				n.sendVoteResponse(message.From, true)
+			}
 		}
 	case "leader":
 		// If the message is a vote request, grant or deny the vote.
@@ -197,33 +294,45 @@ func (n *RaftNode) receiveMessage(message Message) {
 }
 
 func getPeersFromConfig(pathToConfig string) []Peer {
-	// TODO This is broken and does not work
-	data, err := ioutil.ReadFile(pathToConfig)
+	fmt.Println("raft::getPeersFromConfig()")
+
+	fmt.Println("raft::getPeersFromConfig() - pathToConfig: ", pathToConfig)
+	fmt.Println("raft::getPeersFromConfig() - reading config file")
+	rawData, err := ioutil.ReadFile(pathToConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Convert the byte slice to a string
-	jsonString := string(data)
+	jsonString := string(rawData)
 
-	// Print the JSON string to the console
-	fmt.Println(jsonString)
+	var data []map[string]interface{}
+	err = json.Unmarshal([]byte(jsonString), &data)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return nil
+	}
 
 	var peers []Peer
 
-	err = json.Unmarshal([]byte(data), &peers)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for _, node := range data {
+		fmt.Println("raft::getPeersFromConfig() - populating node: ", node["name"])
+		peers = append(peers, Peer{
+			name:    node["name"].(string),
+			address: node["address"].(string),
+		})
 
-	fmt.Println((peers))
+	}
 
 	return peers
 }
 
 // startElectionTimer starts the election timer with a random timeout between 150ms and 300ms.
 func (n *RaftNode) startElectionTimer() {
+	fmt.Println("Starting election timer")
 	timeout := time.Duration(rand.Intn(150)+150) * time.Millisecond
+
+	fmt.Println("raft::startElectionTimer() - timeout: ", timeout)
 	n.electionTimer = time.NewTimer(timeout)
 }
 
@@ -233,12 +342,23 @@ func (n *RaftNode) becomeCandidate() {
 	n.state = "candidate"
 	n.currentTerm++
 	n.votedFor = n.name
+	n.votesReceived = 1
 	n.startElectionTimer()
 }
 
 func (n *RaftNode) becomeFollower(term int) {
 	n.state = "follower"
 	n.currentTerm = term
+	n.votedFor = ""
+	n.votesReceived = 0
+	n.startElectionTimer()
+}
+
+func (n *RaftNode) becomeLeader() {
+	fmt.Println("raft::becomeLeader()")
+	n.state = "leader"
+	n.votedFor = ""
+	n.votesReceived = 0
 	n.startElectionTimer()
 }
 
@@ -274,7 +394,42 @@ func (n *RaftNode) requestVote() {
 		}
 
 		fmt.Println("Sending message")
-		_, err = n.dealerSocket.SendBytes(payload, 0)
+		_, err = n.reqSock.SendBytes(payload, 0)
+
+		if err != nil {
+			fmt.Println("Error sending message:", err)
+			return
+		}
+		fmt.Println("Message sent")
+
+	}
+}
+
+// requestHeartBeat sends a heartbeat to the given node.
+func (n *RaftNode) requestHeartBeat() {
+	fmt.Println("raft::requestHeartBeat()")
+	fmt.Println("raft::requestHeartBeat() - sending heartbeat to each peer")
+	// send to each peer
+	for _, peer := range n.peers {
+		fmt.Println("raft::requestHeartBeat() - sending heartbeat to: ", peer)
+		request := Message{
+			Type:    "HeartBeat",
+			Term:    n.currentTerm,
+			From:    n.name,
+			To:      peer.name,
+			Command: "",
+		}
+
+		// Encode the request message as JSON.
+		payload, err := json.Marshal(request)
+		if err != nil {
+			fmt.Println("Error encoding message:", err)
+			return
+		}
+
+		fmt.Println("Sending message")
+		_, err = n.reqSock.SendBytes(payload, 0)
+
 		if err != nil {
 			fmt.Println("Error sending message:", err)
 			return
@@ -305,8 +460,39 @@ func (n *RaftNode) sendVoteResponse(to string, voteGranted bool) {
 		return
 	}
 
-	fmt.Println("Sending message")
-	_, err = n.dealerSocket.SendBytes(payload, 0)
+	fmt.Println("raft::sendVoteResponse() - Sending message")
+	_, err = n.repSock.SendBytes(payload, 0)
+	if err != nil {
+		fmt.Println("Error sending message:", err)
+		return
+	}
+
+	fmt.Println("Message sent")
+}
+
+// sendHeartBeatResponse sends a heartbeat response to the given node.
+func (n *RaftNode) sendHeartBeatResponse(to string) {
+	fmt.Println("raft::sendHeartBeatResponse()")
+	fmt.Println("raft::sendHeartBeatResponse() - to: ", to)
+	// Create the response message.
+	response := Message{
+		Type:        "HeartBeatResponse",
+		Term:        n.currentTerm,
+		From:        n.name,
+		To:          to,
+		Command:     "",
+		VoteGranted: false,
+	}
+
+	// Encode the response message as JSON.
+	payload, err := json.Marshal(response)
+	if err != nil {
+		fmt.Println("Error encoding message:", err)
+		return
+	}
+
+	fmt.Println("raft::sendHeartBeatResponse() - Sending message")
+	_, err = n.repSock.SendBytes(payload, 0)
 	if err != nil {
 		fmt.Println("Error sending message:", err)
 		return
@@ -335,13 +521,17 @@ func (n *RaftNode) run() {
 			// Send vote requests to all other nodes.
 			n.requestVote()
 
-			// If a majority of nodes vote for this node, become the leader.
-
 			// If a leader is elected, change state and return.
 			// If the election timer expires, start a new election.
+			select {
+			case <-n.electionTimer.C:
+				n.becomeCandidate()
+			}
 			// If a vote request or heartbeat message is received from the leader, become a follower.
 		case "leader":
 			// Send heartbeat messages to all other nodes.
+			n.requestHeartBeat()
+
 			// If a node does not receive a heartbeat within the election timeout, start a new election.
 			// If a node receives a higher term from a message, become a follower.
 		}
@@ -349,6 +539,8 @@ func (n *RaftNode) run() {
 }
 
 func newRaftNode(name string, address string, port string, peers []Peer) *RaftNode {
+	fmt.Println("raft::newRaftNode()")
+
 	return &RaftNode{
 		name:    name,
 		address: address,
@@ -387,15 +579,11 @@ func main() {
 			break
 		}
 	}
-	fmt.Println("raft::main - peers: ", peers)
 
 	node := newRaftNode(name, address, port, peers)
-	return
-	fmt.Println("raft::main - created new node: ", node.name)
 
 	// connect node to peers
 	node.connectToPeers()
-
 	// Start listening for responses on the ZeroMQ socket.
 	go node.listenForResponses()
 
@@ -407,6 +595,7 @@ func main() {
 	fmt.Scanln(&input)
 
 	// cleanup sockets
-	defer node.dealerSocket.Close()
-	defer node.recvSocket.Close()
+	defer node.reqSock.Close()
+	defer node.repSock.Close()
+	defer node.context.Term()
 }
