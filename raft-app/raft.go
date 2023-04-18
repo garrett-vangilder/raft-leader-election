@@ -620,7 +620,7 @@ func main() {
 
 	// parse command line arguments
 	if len(os.Args) != 4 {
-		fmt.Println("Usage <node name>")
+		fmt.Println("Usage <node name> <address> <port>")
 		os.Exit(1)
 	}
 	name := os.Args[1]

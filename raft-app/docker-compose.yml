@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  raft-node-1:
+    build: .
+    image: raft-node
+    container_name: raft-node-1
+    networks:
+      - raft-network
+    command: /app/raft-node node1 127.0.0.1 5001
+  raft-node-2:
+    image: raft-node
+    container_name: raft-node-2
+    networks:
+      - raft-network
+    command: /app/raft-node node1 127.0.0.1 5002
+  raft-node-3:
+    image: raft-node
+    container_name: raft-node-3
+    networks:
+      - raft-network
+    command: /app/raft-node node1 127.0.0.1 5003
+
+networks:
+  raft-network:
+    driver: bridge

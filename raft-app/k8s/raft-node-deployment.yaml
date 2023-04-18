@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raft-node
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: raft-node
+  template:
+    metadata:
+      labels:
+        app: raft-node
+    spec:
+      containers:
+      - name: raft-node
+        image: localhost:5001/raft-node:1.0 
+        # command: ["raft-node"]
+        # args: ["node1", "127.0.0.1", "5002"]
+        ports:
+        - containerPort: 8080
