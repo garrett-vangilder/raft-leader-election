@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -52,6 +53,7 @@ const (
 	typeAvailableRaftReplicaset = "Available"
 	// typeDegradedRaftReplicaSet represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
 	typeDegradedRaftReplicaset = "Degraded"
+	raftPodName                = "raft-replicaset"
 )
 
 //+kubebuilder:rbac:groups=replicaset.vanderbilt.edu,resources=raftreplicasetvandies,verbs=get;list;watch;create;update;patch;delete
@@ -178,24 +180,33 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil && apierrors.IsNotFound(err) {
 		for i := 0; i < size; i++ {
 			dep, err := r.deployRaftReplicaSet(raftreplicaset, i)
-			if err != nil {
-				log.Error(err, "Failed to define new Deployment resource for RaftReplicaSet")
+			// if err != nil {
+			// 	log.Error(err, "Failed to define new Deployment resource for RaftReplicaSet")
 
-				// The following implementation will update the status
-				meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeAvailableRaftReplicaset,
-					Status: metav1.ConditionFalse, Reason: "Reconciling",
-					Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", raftreplicaset.Name, err)})
+			// 	// The following implementation will update the status
+			// 	meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeAvailableRaftReplicaset,
+			// 		Status: metav1.ConditionFalse, Reason: "Reconciling",
+			// 		Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", raftreplicaset.Name, err)})
 
-				if err := r.Status().Update(ctx, raftreplicaset); err != nil {
-					log.Error(err, "Failed to update RaftReplicaSet status")
-				}
-			}
+			// 	if err := r.Status().Update(ctx, raftreplicaset); err != nil {
+			// 		log.Error(err, "Failed to update RaftReplicaSet status")
+			// 	}
+			// }
 
-			log.Info("Creating a new Pod",
+			log.Info("Creating a new raft Pod",
 				"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
-
 			if err = r.Create(ctx, dep); err != nil {
 				log.Error(err, "Failed to create new Pod",
+					"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
+				continue
+			}
+
+			svc, err := r.deployRaftReplicaSetServices(raftreplicaset, i)
+
+			log.Info("Creating a new raft service",
+				"Replicaset.Namespace", svc.Namespace, "Replicaset.Name", svc.Name)
+			if err = r.Create(ctx, svc); err != nil {
+				log.Error(err, "Failed to create new Service",
 					"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
 				continue
 			}
@@ -239,11 +250,16 @@ func (r *RaftReplicaSetVandyReconciler) doFinalizerOperationsForRaftReplicaSet(c
 			cr.Name,
 			cr.Namespace))
 }
+
 func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 	RaftReplicaSet *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int) (*corev1.Pod, error) {
 	// ls := labelsForRaftReplicaSet(RaftReplicaSet.Name)
 	// replicas := RaftReplicaSet.Spec.Size
 	image, err := getImage()
+
+	podName := raftPodName + "-" + strconv.Itoa(podIndex)
+
+	lables := labelsForRaftReplicaset(podName)
 
 	if err != nil {
 		return nil, err
@@ -251,8 +267,9 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "raft-replicaset-" + strconv.Itoa(podIndex),
+			Name:      podName,
 			Namespace: "default",
+			Labels:    lables,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
@@ -263,10 +280,41 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 			},
 		},
 	}
+
 	if err := ctrl.SetControllerReference(RaftReplicaSet, pod, r.Scheme); err != nil {
 		return nil, err
 	}
 	return pod, nil
+}
+
+func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSetServices(
+	RaftReplicaSet *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int) (*corev1.Service, error) {
+
+	podName := raftPodName + "-" + strconv.Itoa(podIndex)
+
+	lables := labelsForRaftReplicaset(podName)
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Labels:    lables,
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "raft-service-port",
+					Port:       8080,
+					TargetPort: intstr.FromInt(8080),
+					Protocol:   "TCP",
+				},
+			},
+			Selector:  serviceSelectorForRaftReplicaset(podName),
+			ClusterIP: "",
+		},
+	}
+
+	return service, nil
 }
 
 func getImage() (string, error) {
@@ -277,3 +325,21 @@ func getImage() (string, error) {
 	}
 	return image, nil
 }
+
+func labelsForRaftReplicaset(name string) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/instance":   name,
+		"app.kubernetes.io/created-by": "controller-manager",
+	}
+}
+
+func serviceSelectorForRaftReplicaset(name string) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/instance": name,
+	}
+}
+
+// func (r *RaftReplicaSetVandyReconciler) createResource(*corev1.Pod) error {
+
+// 	return nil
+// }
