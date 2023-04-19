@@ -1,0 +1,13 @@
+apiVersion: replicaset.vanderbilt.edu/v1alpha1
+kind: RaftReplicaSetVandy
+metadata:
+  labels:
+    app.kubernetes.io/name: raftreplicasetvandy
+    app.kubernetes.io/instance: raftreplicasetvandy-sample
+    app.kubernetes.io/part-of: raft-replicaset-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: raft-replicaset-operator
+  name: raftreplicasetvandy-sample
+spec:
+  size: 3
+  containerPort: 8080

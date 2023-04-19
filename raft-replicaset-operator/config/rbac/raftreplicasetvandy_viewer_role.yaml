@@ -1,0 +1,27 @@
+# permissions for end users to view raftreplicasetvandies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: raftreplicasetvandy-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: raft-replicaset-operator
+    app.kubernetes.io/part-of: raft-replicaset-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: raftreplicasetvandy-viewer-role
+rules:
+- apiGroups:
+  - replicaset.vanderbilt.edu
+  resources:
+  - raftreplicasetvandies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - replicaset.vanderbilt.edu
+  resources:
+  - raftreplicasetvandies/status
+  verbs:
+  - get
