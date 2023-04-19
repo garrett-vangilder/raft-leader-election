@@ -22,6 +22,8 @@ import (
 	"os"
 	"strconv"
 
+	"encoding/json"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -176,6 +178,13 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	found := &corev1.Pod{}
 	size := int(raftreplicaset.Spec.Size)
+
+	cm := r.createConfigMap(size)
+	if err = r.Create(ctx, cm); err != nil {
+		log.Error(err, "Failed to create new Pod",
+			"Replicaset.Namespace", cm.Namespace, "Replicaset.Name", cm.Name)
+	}
+
 	err = r.Get(ctx, types.NamespacedName{Name: raftreplicaset.Name, Namespace: raftreplicaset.Namespace}, found)
 	if err != nil && apierrors.IsNotFound(err) {
 		for i := 0; i < size; i++ {
@@ -276,6 +285,24 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 				{
 					Name:  "raft-noder",
 					Image: image,
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "config-volume",
+							MountPath: "/etc/raftconfig",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "config-volume",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "raft-replicaset",
+							},
+						},
+					},
 				},
 			},
 		},
@@ -337,6 +364,41 @@ func serviceSelectorForRaftReplicaset(name string) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/instance": name,
 	}
+}
+
+func (r *RaftReplicaSetVandyReconciler) createConfigMap(size int) *corev1.ConfigMap {
+	configMapList := []map[string]string{}
+
+	// Loop 3 times and create a new map for each iteration
+	for i := 0; i < size; i++ {
+		// Create a new map with a unique key-value pair
+		newMap := map[string]string{
+			fmt.Sprintf("name"):    fmt.Sprintf("node%d", i),
+			fmt.Sprintf("address"): fmt.Sprintf("%s-%d.default.svc.cluster.local:8080", raftPodName, i),
+		}
+		// Append the new map to the list
+		configMapList = append(configMapList, newMap)
+	}
+
+	jsonString, err := json.Marshal(configMapList)
+	if err != nil {
+		fmt.Println("Error marshaling list to JSON:", err)
+	}
+	configMapData := make(map[string]string, 0)
+	configMapData["config.json"] = string(jsonString)
+
+	configMap := &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ConfigMap",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "raft-replicaset",
+			Namespace: "default",
+		},
+		Data: configMapData,
+	}
+	return configMap
 }
 
 // func (r *RaftReplicaSetVandyReconciler) createResource(*corev1.Pod) error {
