@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -49,9 +48,9 @@ type RaftReplicaSetVandyReconciler struct {
 
 // Definitions to manage status conditions
 const (
-	// typeAvailableMemcached represents the status of the Deployment reconciliation
+	// typeAvailableRaftReplicaSet represents the status of the Deployment reconciliation
 	typeAvailableRaftReplicaset = "Available"
-	// typeDegradedMemcached represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
+	// typeDegradedRaftReplicaSet represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
 	typeDegradedRaftReplicaset = "Degraded"
 )
 
@@ -91,23 +90,23 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	if raftreplicaset.Status.Conditions == nil || len(raftreplicaset.Status.Conditions) == 0 {
 		meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeAvailableRaftReplicaset, Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
 		if err = r.Status().Update(ctx, raftreplicaset); err != nil {
-			log.Error(err, "Failed to update Memcached status")
+			log.Error(err, "Failed to update RaftReplicaSet status")
 			return ctrl.Result{}, err
 		}
 
-		// Let's re-fetch the memcached Custom Resource after update the status
+		// Let's re-fetch the RaftReplicaSet Custom Resource after update the status
 		// so that we have the latest state of the resource on the cluster and we will avoid
 		// raise the issue "the object has been modified, please apply
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, raftreplicaset); err != nil {
-			log.Error(err, "Failed to re-fetch memcached")
+			log.Error(err, "Failed to re-fetch RaftReplicaSet")
 			return ctrl.Result{}, err
 		}
 	}
 
 	if !controllerutil.ContainsFinalizer(raftreplicaset, raftreplicasetFinalizer) {
-		log.Info("Adding Finalizer for Memcached")
+		log.Info("Adding Finalizer for RaftReplicaSet")
 		if ok := controllerutil.AddFinalizer(raftreplicaset, raftreplicasetFinalizer); !ok {
 			log.Error(err, "Failed to add finalizer into the custom resource")
 			return ctrl.Result{Requeue: true}, nil
@@ -122,7 +121,7 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	isRaftReplicaSetMarkedToBeDeleted := raftreplicaset.GetDeletionTimestamp() != nil
 	if isRaftReplicaSetMarkedToBeDeleted {
 		if controllerutil.ContainsFinalizer(raftreplicaset, raftreplicasetFinalizer) {
-			log.Info("Performing Finalizer Operations for Memcached before delete CR")
+			log.Info("Performing Finalizer Operations for RaftReplicaSet before delete CR")
 
 			// Let's add here an status "Downgrade" to define that this resource begin its process to be terminated.
 			meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeDegradedRaftReplicaset,
@@ -130,24 +129,24 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", raftreplicaset.Name)})
 
 			if err := r.Status().Update(ctx, raftreplicaset); err != nil {
-				log.Error(err, "Failed to update Memcached status")
+				log.Error(err, "Failed to update RaftReplicaSet status")
 				return ctrl.Result{}, err
 			}
 
 			// Perform all operations required before remove the finalizer and allow
 			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsForMemcached(raftreplicaset)
+			r.doFinalizerOperationsForRaftReplicaSet(raftreplicaset)
 
-			// TODO(user): If you add operations to the doFinalizerOperationsForMemcached method
+			// TODO(user): If you add operations to the doFinalizerOperationsForRaftReplicaSet method
 			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
 			// otherwise, you should requeue here.
 
-			// Re-fetch the memcached Custom Resource before update the status
+			// Re-fetch the RaftReplicaSet Custom Resource before update the status
 			// so that we have the latest state of the resource on the cluster and we will avoid
 			// raise the issue "the object has been modified, please apply
 			// your changes to the latest version and try again" which would re-trigger the reconciliation
 			if err := r.Get(ctx, req.NamespacedName, raftreplicaset); err != nil {
-				log.Error(err, "Failed to re-fetch memcached")
+				log.Error(err, "Failed to re-fetch RaftReplicaSet")
 				return ctrl.Result{}, err
 			}
 
@@ -156,18 +155,18 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 				Message: fmt.Sprintf("Finalizer operations for custom resource %s name were successfully accomplished", raftreplicaset.Name)})
 
 			if err := r.Status().Update(ctx, raftreplicaset); err != nil {
-				log.Error(err, "Failed to update Memcached status")
+				log.Error(err, "Failed to update RaftReplicaSet status")
 				return ctrl.Result{}, err
 			}
 
-			log.Info("Removing Finalizer for Memcached after successfully perform the operations")
+			log.Info("Removing Finalizer for RaftReplicaSet after successfully perform the operations")
 			if ok := controllerutil.RemoveFinalizer(raftreplicaset, raftreplicasetFinalizer); !ok {
-				log.Error(err, "Failed to remove finalizer for Memcached")
+				log.Error(err, "Failed to remove finalizer for RaftReplicaSet")
 				return ctrl.Result{Requeue: true}, nil
 			}
 
 			if err := r.Update(ctx, raftreplicaset); err != nil {
-				log.Error(err, "Failed to remove finalizer for Memcached")
+				log.Error(err, "Failed to remove finalizer for RaftReplicaSet")
 				return ctrl.Result{}, err
 			}
 		}
@@ -180,7 +179,7 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 		for i := 0; i < size; i++ {
 			dep, err := r.deployRaftReplicaSet(raftreplicaset, i)
 			if err != nil {
-				log.Error(err, "Failed to define new Deployment resource for Memcached")
+				log.Error(err, "Failed to define new Deployment resource for RaftReplicaSet")
 
 				// The following implementation will update the status
 				meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeAvailableRaftReplicaset,
@@ -188,27 +187,24 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 					Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", raftreplicaset.Name, err)})
 
 				if err := r.Status().Update(ctx, raftreplicaset); err != nil {
-					log.Error(err, "Failed to update Memcached status")
-					return ctrl.Result{}, err
+					log.Error(err, "Failed to update RaftReplicaSet status")
 				}
-
-				return ctrl.Result{}, err
 			}
 
 			log.Info("Creating a new Pod",
 				"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
 
 			if err = r.Create(ctx, dep); err != nil {
-				log.Error(err, "Failed to create new Replicaset",
+				log.Error(err, "Failed to create new Pod",
 					"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
-				return ctrl.Result{}, err
+				continue
 			}
 		}
 
 		// Replicaset created successfully
 		// We will requeue the reconciliation so that we can ensure the state
 		// and move forward for the next operations
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
+		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
 		log.Error(err, "Failed to get Replicaset")
 		// Let's return the error for the reconciliation be re-trigged again
@@ -224,8 +220,8 @@ func (r *RaftReplicaSetVandyReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-// finalizeMemcached will perform the required operations before delete the CR.
-func (r *RaftReplicaSetVandyReconciler) doFinalizerOperationsForMemcached(cr *replicasetv1alpha1.RaftReplicaSetVandy) {
+// finalizeRaftReplicaSet will perform the required operations before delete the CR.
+func (r *RaftReplicaSetVandyReconciler) doFinalizerOperationsForRaftReplicaSet(cr *replicasetv1alpha1.RaftReplicaSetVandy) {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
@@ -244,9 +240,9 @@ func (r *RaftReplicaSetVandyReconciler) doFinalizerOperationsForMemcached(cr *re
 			cr.Namespace))
 }
 func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
-	memcached *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int) (*corev1.Pod, error) {
-	// ls := labelsForMemcached(memcached.Name)
-	// replicas := memcached.Spec.Size
+	RaftReplicaSet *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int) (*corev1.Pod, error) {
+	// ls := labelsForRaftReplicaSet(RaftReplicaSet.Name)
+	// replicas := RaftReplicaSet.Spec.Size
 	image, err := getImage()
 
 	if err != nil {
@@ -267,7 +263,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 			},
 		},
 	}
-	if err := ctrl.SetControllerReference(memcached, pod, r.Scheme); err != nil {
+	if err := ctrl.SetControllerReference(RaftReplicaSet, pod, r.Scheme); err != nil {
 		return nil, err
 	}
 	return pod, nil
