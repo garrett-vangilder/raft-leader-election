@@ -11,4 +11,4 @@ metadata:
 spec:
   size: 3
   containerPort: 8080
-  image: harbor-repo.vmware.com/velocloud/vmware-eni/eni-dbs:raft1
+  image: harbor-repo.vmware.com/velocloud/vmware-eni/eni-dbs:raft2

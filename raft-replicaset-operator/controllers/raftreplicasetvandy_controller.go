@@ -279,7 +279,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:  "raft-noder",
+					Name:  "raft-node",
 					Image: image,
 					VolumeMounts: []corev1.VolumeMount{
 						{
@@ -287,7 +287,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 							MountPath: "/etc/raftconfig",
 						},
 					},
-					Command: []string{"tail", "-f", "/dev/null"},
+					Command: []string{"/app/raft-node", fmt.Sprintf("node%d", podIndex), fmt.Sprintf("%s.vandy.svc.cluster.local", podName), "8080"},
 				},
 			},
 			Volumes: []corev1.Volume{
