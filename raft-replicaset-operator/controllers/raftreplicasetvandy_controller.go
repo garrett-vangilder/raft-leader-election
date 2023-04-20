@@ -238,6 +238,9 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *RaftReplicaSetVandyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&replicasetv1alpha1.RaftReplicaSetVandy{}).
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Service{}).
 		Complete(r)
 }
 
