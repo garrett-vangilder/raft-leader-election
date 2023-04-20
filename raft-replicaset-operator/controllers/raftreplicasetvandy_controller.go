@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 
 	"encoding/json"
@@ -178,6 +177,7 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	found := &corev1.Pod{}
 	size := int(raftreplicaset.Spec.Size)
+	image := raftreplicaset.Spec.Image
 
 	cm := r.createConfigMap(size)
 	namespaceId := types.NamespacedName{
@@ -195,7 +195,7 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	err = r.Get(ctx, types.NamespacedName{Name: raftreplicaset.Name, Namespace: raftreplicaset.Namespace}, found)
 	if err != nil && apierrors.IsNotFound(err) {
 		for i := 0; i < size; i++ {
-			dep, err := r.deployRaftReplicaSet(raftreplicaset, i)
+			dep, err := r.deployRaftReplicaSet(raftreplicaset, i, image)
 
 			namespaceId := types.NamespacedName{
 				Name:      "raft-replicaset-" + strconv.Itoa(i),
@@ -257,18 +257,13 @@ func (r *RaftReplicaSetVandyReconciler) doFinalizerOperationsForRaftReplicaSet(c
 }
 
 func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
-	RaftReplicaSet *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int) (*corev1.Pod, error) {
+	RaftReplicaSet *replicasetv1alpha1.RaftReplicaSetVandy, podIndex int, image string) (*corev1.Pod, error) {
 	// ls := labelsForRaftReplicaSet(RaftReplicaSet.Name)
 	// replicas := RaftReplicaSet.Spec.Size
-	image, err := getImage()
 
 	podName := raftPodName + "-" + strconv.Itoa(podIndex)
 
 	lables := labelsForRaftReplicaset(podName)
-
-	if err != nil {
-		return nil, err
-	}
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -339,15 +334,6 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSetServices(
 	}
 
 	return service, nil
-}
-
-func getImage() (string, error) {
-	var imageEnvVar = "RAFT_IMAGE"
-	image, found := os.LookupEnv(imageEnvVar)
-	if !found {
-		return "", fmt.Errorf("Unable to find %s environment variable with the image", imageEnvVar)
-	}
-	return image, nil
 }
 
 func labelsForRaftReplicaset(name string) map[string]string {
