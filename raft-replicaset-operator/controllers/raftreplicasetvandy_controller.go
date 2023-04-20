@@ -180,16 +180,21 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	image := raftreplicaset.Spec.Image
 
 	cm := r.createConfigMap(size)
+
 	namespaceId := types.NamespacedName{
 		Name:      "raft-replicaset",
-		Namespace: "default",
+		Namespace: "vandy",
 	}
 	raftresource := r.Get(ctx, namespaceId, cm)
+
+	// current := r.Get(ctx, req.NamespacedName, &corev1.ConfigMap{})
 
 	if raftresource != nil {
 		if err = r.Create(ctx, cm); err != nil {
 			log.Error(err, "Failed to create new CM")
 		}
+	} else {
+		r.Update(ctx, cm)
 	}
 
 	err = r.Get(ctx, types.NamespacedName{Name: raftreplicaset.Name, Namespace: raftreplicaset.Namespace}, found)
@@ -199,7 +204,7 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 
 			namespaceId := types.NamespacedName{
 				Name:      "raft-replicaset-" + strconv.Itoa(i),
-				Namespace: "default",
+				Namespace: "vandy",
 			}
 			raftresource := r.Get(ctx, namespaceId, dep)
 			if raftresource != nil {
@@ -268,7 +273,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
-			Namespace: "default",
+			Namespace: "vandy",
 			Labels:    lables,
 		},
 		Spec: corev1.PodSpec{
@@ -317,7 +322,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSetServices(
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
 			Labels:    lables,
-			Namespace: "default",
+			Namespace: "vandy",
 		},
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -357,7 +362,7 @@ func (r *RaftReplicaSetVandyReconciler) createConfigMap(size int) *corev1.Config
 		// Create a new map with a unique key-value pair
 		newMap := map[string]string{
 			fmt.Sprintf("name"):    fmt.Sprintf("node%d", i),
-			fmt.Sprintf("address"): fmt.Sprintf("%s-%d.default.svc.cluster.local:8080", raftPodName, i),
+			fmt.Sprintf("address"): fmt.Sprintf("%s-%d.vandy.svc.cluster.local:8080", raftPodName, i),
 		}
 		// Append the new map to the list
 		configMapList = append(configMapList, newMap)
@@ -377,7 +382,7 @@ func (r *RaftReplicaSetVandyReconciler) createConfigMap(size int) *corev1.Config
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "raft-replicaset",
-			Namespace: "default",
+			Namespace: "vandy",
 		},
 		Data: configMapData,
 	}
