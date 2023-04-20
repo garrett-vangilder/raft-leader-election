@@ -180,44 +180,40 @@ func (r *RaftReplicaSetVandyReconciler) Reconcile(ctx context.Context, req ctrl.
 	size := int(raftreplicaset.Spec.Size)
 
 	cm := r.createConfigMap(size)
-	if err = r.Create(ctx, cm); err != nil {
-		log.Error(err, "Failed to create new Pod",
-			"Replicaset.Namespace", cm.Namespace, "Replicaset.Name", cm.Name)
+	namespaceId := types.NamespacedName{
+		Name:      "raft-replicaset",
+		Namespace: "default",
+	}
+	raftresource := r.Get(ctx, namespaceId, cm)
+
+	if raftresource != nil {
+		if err = r.Create(ctx, cm); err != nil {
+			log.Error(err, "Failed to create new CM")
+		}
 	}
 
 	err = r.Get(ctx, types.NamespacedName{Name: raftreplicaset.Name, Namespace: raftreplicaset.Namespace}, found)
 	if err != nil && apierrors.IsNotFound(err) {
 		for i := 0; i < size; i++ {
 			dep, err := r.deployRaftReplicaSet(raftreplicaset, i)
-			// if err != nil {
-			// 	log.Error(err, "Failed to define new Deployment resource for RaftReplicaSet")
 
-			// 	// The following implementation will update the status
-			// 	meta.SetStatusCondition(&raftreplicaset.Status.Conditions, metav1.Condition{Type: typeAvailableRaftReplicaset,
-			// 		Status: metav1.ConditionFalse, Reason: "Reconciling",
-			// 		Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", raftreplicaset.Name, err)})
-
-			// 	if err := r.Status().Update(ctx, raftreplicaset); err != nil {
-			// 		log.Error(err, "Failed to update RaftReplicaSet status")
-			// 	}
-			// }
-
-			log.Info("Creating a new raft Pod",
-				"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
-			if err = r.Create(ctx, dep); err != nil {
-				log.Error(err, "Failed to create new Pod",
-					"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
-				continue
+			namespaceId := types.NamespacedName{
+				Name:      "raft-replicaset-" + strconv.Itoa(i),
+				Namespace: "default",
+			}
+			raftresource := r.Get(ctx, namespaceId, dep)
+			if raftresource != nil {
+				if err = r.Create(ctx, dep); err != nil {
+					log.Error(err, "Failed to create new Pod")
+				}
 			}
 
 			svc, err := r.deployRaftReplicaSetServices(raftreplicaset, i)
-
-			log.Info("Creating a new raft service",
-				"Replicaset.Namespace", svc.Namespace, "Replicaset.Name", svc.Name)
-			if err = r.Create(ctx, svc); err != nil {
-				log.Error(err, "Failed to create new Service",
-					"Replicaset.Namespace", dep.Namespace, "Replicaset.Name", dep.Name)
-				continue
+			raftresource = r.Get(ctx, namespaceId, svc)
+			if raftresource != nil {
+				if err = r.Create(ctx, svc); err != nil {
+					log.Error(err, "Failed to create new Service")
+				}
 			}
 		}
 
@@ -291,6 +287,7 @@ func (r *RaftReplicaSetVandyReconciler) deployRaftReplicaSet(
 							MountPath: "/etc/raftconfig",
 						},
 					},
+					Command: []string{"tail", "-f", "/dev/null"},
 				},
 			},
 			Volumes: []corev1.Volume{

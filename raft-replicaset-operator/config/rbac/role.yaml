@@ -5,6 +5,15 @@ metadata:
   creationTimestamp: null
   name: manager-role
 rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["services", "secrets"]
+  verbs: ["*"]
 - apiGroups:
   - replicaset.vanderbilt.edu
   resources:
