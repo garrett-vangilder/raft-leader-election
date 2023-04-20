@@ -41,14 +41,13 @@ spec:
                   with the image
                 format: int32
                 type: integer
+              image:
+                type: string
               size:
                 description: Foo is an example field of RaftReplicaSetVandy. Edit
                   raftreplicasetvandy_types.go to remove/update
                 format: int32
                 type: integer
-              image:
-                description: the replica-set image
-                type: string
             type: object
           status:
             description: RaftReplicaSetVandyStatus defines the observed state of RaftReplicaSetVandy

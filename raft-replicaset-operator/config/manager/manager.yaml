@@ -69,7 +69,8 @@ spec:
       - command:
         - /manager
         args:
-        image: harbor-repo.vmware.com/velocloud/vmware-eni/eni-dbs:operator3
+        image: georgewhr/vandy-operator:latest 
+        # image: harbor-repo.vmware.com/velocloud/vmware-eni/eni-dbs:operator4
         name: manager
         securityContext:
           allowPrivilegeEscalation: false
