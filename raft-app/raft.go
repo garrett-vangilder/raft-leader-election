@@ -357,7 +357,7 @@ func (n *RaftNode) receiveMessage(message Message) {
 	}
 }
 
-func getPeersFromConfig(pathToConfig string) []Peer {
+func getPeersFromConfig(pathToConfig string, nodeName string) []Peer {
 	fmt.Println("raft::getPeersFromConfig()")
 
 	fmt.Println("raft::getPeersFromConfig() - pathToConfig: ", pathToConfig)
@@ -380,6 +380,11 @@ func getPeersFromConfig(pathToConfig string) []Peer {
 	var peers []Peer
 
 	for _, node := range data {
+		// do not connect to ourself
+		if node["name"] == nodeName {
+			continue
+		}
+
 		fmt.Println("raft::getPeersFromConfig() - populating node: ", node["name"])
 		peers = append(peers, Peer{
 			name:    node["name"].(string),
@@ -635,7 +640,7 @@ func main() {
 	fmt.Println("raft::main - port: ", port)
 
 	// parse config from json
-	peers := getPeersFromConfig("/etc/raftconfig/config.json")
+	peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
 
 	// remove self from peers
 	for i, peer := range peers {
@@ -655,9 +660,10 @@ func main() {
 	// Start the process
 	go node.run()
 
-	// Wait for input to exit.
-	var input string
-	fmt.Scanln(&input)
+	// infinite loop to prevent exit
+	for {
+		time.Sleep(1 * time.Second)
+	}
 
 	// cleanup sockets
 	defer node.reqSock.Close()
