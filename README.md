@@ -18,6 +18,8 @@ go run . <node-name> <node-address> <node-port>
 
 ## Docker
 
+docker run --name rn6 -it raft-node /app/raft-node node1 127.0.0.1 5001 
+
 You can run nodes 1, 2 & 3 together in containers using the docker-compose file, by running:
 
 ```
@@ -56,7 +58,14 @@ kubectl delete service raft-node
 
 Demo: 
 - Operator will launch raft nodes
-- Show logs of election, heartbeats, statuses from follower to candidate, etc.
-- Raft code calling k8s api to tag leader? 
-- Leader writes to cache, show leader is writing
+- Nodes/pods communicating with each other
+    - Show logs of election, heartbeats, statuses from follower to candidate, etc.
+- Leader returns if leader, app checks, writes to cache if so, show leader is writing
 - Simulate a crash by deleting the leader and see new one elected 
+- Experiments 
+
+Architecture
+
+Raft replicas
+ - endpoint in each returning if leader > app pings > if leader, write to cache
+
