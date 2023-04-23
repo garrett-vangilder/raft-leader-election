@@ -15,7 +15,15 @@ spec:
       containers:
       - name: raft-node
         image: localhost:5001/raft-node:1.0 
-        # command: ["raft-node"]
-        # args: ["node1", "127.0.0.1", "5002"]
+        command: ["./raft-node"]
+        args: ["node1", "127.0.0.1", "5002"]
+        # args: ["node1, node2, node3"]
         ports:
         - containerPort: 8080
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi

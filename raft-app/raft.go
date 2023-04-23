@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -620,7 +621,23 @@ func newRaftNode(name string, address string, port string, peers []Peer) *RaftNo
 	}
 }
 
+func webHandler(res http.ResponseWriter, req *http.Request) {
+	// randomize for testing
+	rand.Seed(time.Now().UnixNano())
+	isLeader := rand.Intn(2) == 1
+
+	data, err := json.Marshal(isLeader)
+	if err != nil {
+		res.WriteHeader(http.StatusInternalServerError)
+		res.Write([]byte(err.Error()))
+		return
+	}
+	res.WriteHeader(http.StatusOK)
+	res.Write(data)
+}
+
 func main() {
+
 	fmt.Println("raft::main")
 
 	// parse command line arguments
@@ -641,6 +658,7 @@ func main() {
 
 	// parse config from json
 	peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
+	//peers := getPeersFromConfig("./config.json", name)
 
 	// remove self from peers
 	for i, peer := range peers {
@@ -659,6 +677,10 @@ func main() {
 
 	// Start the process
 	go node.run()
+
+	fmt.Println("raft::main - http listener")
+	http.HandleFunc("/", webHandler)
+	http.ListenAndServe("localhost:7777", nil)
 
 	// infinite loop to prevent exit
 	for {
