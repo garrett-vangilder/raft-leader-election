@@ -431,6 +431,7 @@ func (n *RaftNode) becomeLeader() {
 	n.votesReceived = 0
 	n.startElectionTimer()
 	n.currentTerm++
+	writeToCache("leader", n.name)
 }
 
 // requestVote sends a vote request to the given node and returns true if the vote is granted.
@@ -657,8 +658,8 @@ func main() {
 	fmt.Println("raft::main - port: ", port)
 
 	// parse config from json
-	peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
-	//peers := getPeersFromConfig("./config.json", name)
+	//peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
+	peers := getPeersFromConfig("./config.json", name)
 
 	// remove self from peers
 	for i, peer := range peers {
@@ -678,9 +679,10 @@ func main() {
 	// Start the process
 	go node.run()
 
-	fmt.Println("raft::main - http listener")
-	http.HandleFunc("/", webHandler)
-	http.ListenAndServe("localhost:7777", nil)
+	// If wanting to open an endpoint exposing the leader
+	// fmt.Println("raft::main - http listener")
+	// http.HandleFunc("/", webHandler)
+	// http.ListenAndServe("localhost:7777", nil)
 
 	// infinite loop to prevent exit
 	for {

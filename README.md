@@ -69,3 +69,7 @@ Architecture
 Raft replicas
  - endpoint in each returning if leader > app pings > if leader, write to cache
 
+
+TODO
+- stand up raft, app, redis 
+- 
