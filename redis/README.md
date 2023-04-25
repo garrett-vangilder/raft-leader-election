@@ -1,3 +1,21 @@
+# Redis 
+
+## Install Redis on your cluster using Helm
+
+Update your Helm repo with Bitnami for the Redis Helm chart:
+```
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+```
+
+Install Redis via the chart:
+```
+helm install redis-test --set persistence.storageClass=nfs-client,redis.replicas.persistence.storageClass=nfs-client bitnami/redis --set volumePermissions.enabled=true
+```
+
+
+## Connecting to Redis
+
 Redis&reg; can be accessed on the following DNS names from within your cluster:
 
     redis-test-master.raft.svc.cluster.local for read/write operations (port 6379)

@@ -658,8 +658,8 @@ func main() {
 	fmt.Println("raft::main - port: ", port)
 
 	// parse config from json
-	//peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
-	peers := getPeersFromConfig("./config.json", name)
+	peers := getPeersFromConfig("/etc/raftconfig/config.json", name)
+	// peers := getPeersFromConfig("./config.json", name)
 
 	// remove self from peers
 	for i, peer := range peers {
